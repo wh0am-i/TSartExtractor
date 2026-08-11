@@ -1,0 +1,10 @@
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv
+*.json
+var/logs/
+var/debug/
+backImage.psd
+.codex
+.agents
