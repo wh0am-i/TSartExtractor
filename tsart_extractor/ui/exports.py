@@ -80,24 +80,21 @@ class ExportMixin:
                                     path.write_bytes(client.get_xml(nota.chave))
                                 storage.set_paths(nota.chave, xml_path=str(path))
                             else:
-                                path = Path(local_path) if local_path else config.PDF_DIR / f"{nota.chave}.pdf"
-                                pdf_valido = (
-                                    path.exists()
-                                    and path.stat().st_size >= 500
-                                    and path.read_bytes()[:4] == b"%PDF"
+                                # Sempre gera o DANFSe do zero a partir do XML atual —
+                                # nunca reaproveita um PDF já existente em disco, mesmo
+                                # que pareça válido (evita colocar no ZIP um PDF
+                                # desatualizado de uma exportação anterior).
+                                path = config.PDF_DIR / f"{nota.chave}.pdf"
+                                xml_path = Path(nota.xml_local_path) if nota.xml_local_path else config.XML_DIR / f"{nota.chave}.xml"
+                                if not xml_path.exists():
+                                    if not client:
+                                        raise RuntimeError("XML necessário para gerar o PDF não está disponível")
+                                    xml_path.write_bytes(client.get_xml(nota.chave))
+                                    storage.set_paths(nota.chave, xml_path=str(xml_path))
+                                gerar_danfse(
+                                    xml_path, path,
+                                    cancelada=(nota.situacao == "Cancelada"),
                                 )
-                                if not pdf_valido:
-                                    path = config.PDF_DIR / f"{nota.chave}.pdf"
-                                    xml_path = Path(nota.xml_local_path) if nota.xml_local_path else config.XML_DIR / f"{nota.chave}.xml"
-                                    if not xml_path.exists():
-                                        if not client:
-                                            raise RuntimeError("XML necessário para gerar o PDF não está disponível")
-                                        xml_path.write_bytes(client.get_xml(nota.chave))
-                                        storage.set_paths(nota.chave, xml_path=str(xml_path))
-                                    gerar_danfse(
-                                        xml_path, path,
-                                        cancelada=(nota.situacao == "Cancelada"),
-                                    )
                                 storage.set_paths(nota.chave, pdf_path=str(path))
 
                             zf.write(path, arcname=f"{nota.chave}.{tipo}")

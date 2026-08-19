@@ -125,10 +125,31 @@ def _address(person: "ET.Element | None") -> str:
 
 def _municipio_uf(person: "ET.Element | None") -> str:
     cidade = _text(person, "xCidade") or _text(person, "cMun")
-    uf = _text(person, "UF")
+    # "UF" cobre endereço nacional (endNac); "xEstProvReg" é o campo
+    # equivalente para endereço no exterior (endExt) — sem esse fallback,
+    # o estado/província de um tomador estrangeiro ficava em branco.
+    uf = _text(person, "UF") or _text(person, "xEstProvReg")
     if cidade and uf:
         return f"{cidade} / {uf}"
     return cidade or uf or ""
+
+
+def _pais(person: "ET.Element | None") -> str:
+    """
+    País do endereço da pessoa. Endereço nacional (endNac) não carrega
+    campo de país no layout — nesse caso é sempre Brasil. Endereço no
+    exterior (endExt) traz o código ISO 3166-1 alfa-2 (ex.: "AR") no
+    campo cPais; resolvemos pela tabela _PAISES_ISO (padrão internacional
+    fixo) e, só se o código não constar da tabela, mostramos o código
+    bruto em vez de adivinhar o nome do país.
+    """
+    xpais = _text(person, "xPais")  # alguns emissores incluem texto livre; se vier, prevalece
+    if xpais:
+        return xpais
+    cpais = _text(person, "cPais")
+    if not cpais:
+        return "Brasil"
+    return _PAISES_ISO.get(cpais.strip().upper(), f"Código {cpais} (ISO 3166-1)")
 
 
 def _has_any(parent: "ET.Element | None", *names: str) -> bool:
@@ -151,7 +172,16 @@ def _qr(chave: str) -> Drawing:
 
 _TP_EMIT = {"1": "Prestador", "2": "Tomador", "3": "Intermediário"}
 _TP_AMB = {"1": "Produção", "2": "Produção Restrita (Homologação)"}
-_OP_SIMPLES = {"1": "Optante", "2": "Não Optante", "3": "Optante - Microempreendedor Individual (MEI)"}
+# Domínio oficial do campo opSimpNac (NT SE/CGNFS-e): o valor 3 é
+# ME/EPP optante pelo Simples — NÃO é MEI. MEI é o valor 2. O dicionário
+# anterior tinha 1 e 2 trocados e chamava o código 3 (ME/EPP) de MEI, o
+# que fazia prestadores optantes-mas-não-MEI aparecerem como MEI no PDF.
+_OP_SIMPLES = {
+    "1": "Não Optante",
+    "2": "Optante - Microempreendedor Individual (MEI)",
+    "3": "Optante - Microempresa ou Empresa de Pequeno Porte (ME/EPP)",
+    "4": "Optante Pendente",  # incluído pela NT 009/2026
+}
 _TP_RET_ISSQN = {"1": "Não Retido", "2": "Retido pelo Tomador", "3": "Retido pelo Intermediário"}
 _TP_RET_PISCOFINS = {
     "1": "PIS/COFINS/CSLL Retido",
@@ -162,6 +192,33 @@ _TRIB_ISSQN = {
     "2": "Operação Isenta",
     "3": "Operação Imune",
     "4": "Exigibilidade Suspensa",
+}
+
+# Tabela de Países ISO 3166-1 alfa-2 (código de 2 letras), usada no campo
+# cPais do bloco endExt. É um padrão internacional fixo (não uma tabela
+# proprietária do BACEN), então decodificar o código para o nome do país
+# é seguro — não é uma suposição sobre dados fiscais, é a definição do
+# próprio padrão ISO.
+_PAISES_ISO = {
+    "AR": "Argentina", "BO": "Bolívia", "BR": "Brasil", "CL": "Chile",
+    "CO": "Colômbia", "EC": "Equador", "GY": "Guiana", "PY": "Paraguai",
+    "PE": "Peru", "SR": "Suriname", "UY": "Uruguai", "VE": "Venezuela",
+    "US": "Estados Unidos", "CA": "Canadá", "MX": "México",
+    "PT": "Portugal", "ES": "Espanha", "FR": "França", "DE": "Alemanha",
+    "IT": "Itália", "GB": "Reino Unido", "IE": "Irlanda", "NL": "Países Baixos",
+    "BE": "Bélgica", "CH": "Suíça", "AT": "Áustria", "SE": "Suécia",
+    "NO": "Noruega", "DK": "Dinamarca", "FI": "Finlândia", "PL": "Polônia",
+    "RU": "Rússia", "UA": "Ucrânia", "CN": "China", "JP": "Japão",
+    "KR": "Coreia do Sul", "IN": "Índia", "AU": "Austrália",
+    "NZ": "Nova Zelândia", "ZA": "África do Sul", "AE": "Emirados Árabes Unidos",
+    "IL": "Israel", "PA": "Panamá", "CR": "Costa Rica", "CU": "Cuba",
+    "DO": "República Dominicana", "JM": "Jamaica", "GT": "Guatemala",
+    "HN": "Honduras", "SV": "El Salvador", "NI": "Nicarágua",
+    "CY": "Chipre", "LU": "Luxemburgo", "AD": "Andorra", "MC": "Mônaco",
+    "GR": "Grécia", "TR": "Turquia", "AO": "Angola", "MZ": "Moçambique",
+    "CV": "Cabo Verde", "GW": "Guiné-Bissau", "ST": "São Tomé e Príncipe",
+    "TL": "Timor-Leste", "SG": "Singapura", "HK": "Hong Kong",
+    "TW": "Taiwan", "MO": "Macau",
 }
 
 
@@ -334,8 +391,9 @@ def gerar_danfse(
         row1.append((6.3, "TELEFONE", _text(pessoa, "fone") or "-"))
         story.append(field_row(row1))
         story.append(field_row([
-            (9.4, "NOME / NOME EMPRESARIAL", _text(pessoa, "xNome")),
-            (9.4, "MUNICÍPIO / SIGLA UF", _municipio_uf(pessoa) or "-"),
+            (6.3, "NOME / NOME EMPRESARIAL", _text(pessoa, "xNome")),
+            (6.3, "MUNICÍPIO / SIGLA UF", _municipio_uf(pessoa) or "-"),
+            (6.3, "PAÍS", _pais(pessoa)),
         ]))
         story.append(field_row([
             (9.4, "ENDEREÇO", _address(pessoa) or "-"),
