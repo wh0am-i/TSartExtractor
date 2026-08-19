@@ -94,7 +94,10 @@ class ExportMixin:
                                             raise RuntimeError("XML necessário para gerar o PDF não está disponível")
                                         xml_path.write_bytes(client.get_xml(nota.chave))
                                         storage.set_paths(nota.chave, xml_path=str(xml_path))
-                                    gerar_danfse(xml_path, path)
+                                    gerar_danfse(
+                                        xml_path, path,
+                                        cancelada=(nota.situacao == "Cancelada"),
+                                    )
                                 storage.set_paths(nota.chave, pdf_path=str(path))
 
                             zf.write(path, arcname=f"{nota.chave}.{tipo}")
