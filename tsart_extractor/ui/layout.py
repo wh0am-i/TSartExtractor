@@ -211,6 +211,11 @@ class LayoutMixin:
             style="Secondary.TButton",
         )
         self.relatorio_btn.pack(side=LEFT)
+        self.exportar_tudo = ttk.Button(
+            actions, text="Exportar tudo", command=self._exportar_tudo,
+            style="Secondary.TButton",
+        )
+        self.exportar_tudo.pack(side=LEFT, padx=6)
         self.status_bar = ttk.Label(
             self.root, text="Selecione um certificado para começar.",
             style="Status.TLabel", anchor=W, padding=(20, 9),

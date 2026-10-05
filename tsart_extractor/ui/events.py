@@ -213,6 +213,59 @@ class EventMixin:
                             + (f", {falhas} sem arquivo {rotulo} local (ignorada(s))." if falhas else ".")
                         )
 
+                # ── Exportar tudo (XML + PDF + relatório) ───────────────
+                elif kind == "export_all_progresso":
+                    _, i, total_export, detalhe = item
+                    self._update_progress_dialog(i, total_export, detalhe)
+
+                elif kind == "export_all_fim":
+                    _, resultados, caminhos, erro_relatorio, cancelado = item
+                    self._close_progress_dialog()
+                    estado_lote = "normal" if self.sincronizado and self.notas_atuais else "disabled"
+                    self.baixar_lote_btn_xml.config(state=estado_lote)
+                    self.baixar_lote_btn_pdf.config(state=estado_lote)
+                    self.relatorio_btn.config(state="normal")
+                    self.exportar_tudo.config(state="normal")
+
+                    if cancelado:
+                        self.status_bar.config(text="Exportação completa cancelada.")
+                        continue
+
+                    partes_erro = []
+                    for tipo in ("xml", "pdf"):
+                        ok, falhas, erro = resultados.get(tipo, (0, 0, "Não executado."))
+                        rotulo = "XML" if tipo == "xml" else "PDF"
+                        if erro:
+                            partes_erro.append(f"{rotulo}: {erro}")
+                    if erro_relatorio:
+                        partes_erro.append(f"Relatório: {erro_relatorio}")
+
+                    if partes_erro:
+                        self.status_bar.config(text="Exportação completa finalizada com erro(s).")
+                        messagebox.showerror(
+                            "Exportar tudo",
+                            "Alguns arquivos não puderam ser gerados:\n\n" + "\n".join(partes_erro),
+                        )
+                    else:
+                        xml_ok, xml_falhas, _ = resultados.get("xml", (0, 0, None))
+                        pdf_ok, pdf_falhas, _ = resultados.get("pdf", (0, 0, None))
+                        self.status_bar.config(
+                            text=f"Exportação completa gerada: {xml_ok} XML(s), {pdf_ok} PDF(s) e relatório."
+                        )
+                        falhas_msg = ""
+                        if xml_falhas or pdf_falhas:
+                            falhas_msg = (
+                                f"\n\nFalhas ignoradas: {xml_falhas} XML(s), {pdf_falhas} PDF(s)."
+                            )
+                        messagebox.showinfo(
+                            "Exportação completa",
+                            "Arquivos criados com sucesso em:\n"
+                            f"{caminhos['xml']}\n"
+                            f"{caminhos['pdf']}\n"
+                            f"{caminhos['relatorio']}"
+                            f"{falhas_msg}",
+                        )
+
         except queue.Empty:
             pass
         except Exception as exc:
