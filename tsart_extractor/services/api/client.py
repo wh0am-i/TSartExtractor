@@ -60,6 +60,7 @@ def _extract_cnpj_from_text(text: str) -> str:
 def extract_cnpj_from_pfx(pfx_path: str, password: str) -> str:
     try:
         from cryptography.hazmat.primitives.serialization import pkcs12
+        from cryptography.x509.oid import NameOID
 
         pfx_data = Path(pfx_path).read_bytes()
 
@@ -71,13 +72,10 @@ def extract_cnpj_from_pfx(pfx_path: str, password: str) -> str:
         if certificate is None:
             return ""
 
-        for attr in certificate.subject:
+        # O OU pode conter o CNPJ da certificadora, inclusive em um e-CPF.
+        # Use apenas o nome do titular (CN) para identificar a empresa.
+        for attr in certificate.subject.get_attributes_for_oid(NameOID.COMMON_NAME):
             value = str(attr.value)
-
-            # ignora CNPJs da cadeia ICP-Brasil
-            if value == "ICP-Brasil":
-                continue
-
             cnpj = _extract_cnpj_from_text(value)
             if cnpj:
                 return cnpj
@@ -143,6 +141,7 @@ class _WindowsStoreCertSession:
 
     def get(self, url: str, **kwargs) -> _WindowsStoreResponse:
         timeout = int(kwargs.get("timeout") or config.HTTP_TIMEOUT)
+        url = requests.Request("GET", url, params=kwargs.get("params")).prepare().url
         script = f"""
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -190,9 +189,12 @@ try {{
         headers = $headers
     }} | ConvertTo-Json -Compress -Depth 5
 }} catch {{
+    $cause = $_.Exception
+    while ($cause.InnerException) {{ $cause = $cause.InnerException }}
     [PSCustomObject]@{{
         ok = $false
-        error = $_.Exception.Message
+        error = $cause.Message
+        error_type = $cause.GetType().FullName
     }} | ConvertTo-Json -Compress -Depth 3
     exit 2
 }} finally {{
@@ -238,6 +240,14 @@ try {{
             ) from e
 
         if not payload.get("ok"):
+            if payload.get("error_type") in (
+                "System.Threading.Tasks.TaskCanceledException",
+                "System.OperationCanceledException",
+                "System.TimeoutException",
+            ):
+                raise requests.exceptions.Timeout(
+                    f"A consulta ao ADN excedeu {timeout} segundos."
+                )
             raise requests.exceptions.RequestException(
                 payload.get("error") or proc.stderr.strip() or "Falha no transporte Windows Store."
             )
@@ -254,7 +264,7 @@ class NFSeClient:
         store_location: str = "CurrentUser",
         store_name: str = "My",
         client_cnpj: str = "",
-        auto_extract_pfx_cnpj: bool = False,
+        auto_extract_pfx_cnpj: bool = True,
     ):
         self._pfx_path = pfx_path or ""
         self._pfx_password = pfx_password or ""
@@ -285,6 +295,12 @@ class NFSeClient:
     # ------------------------------------------------------------------
     # Helpers internos
     # ------------------------------------------------------------------
+    def _dfe_params(self) -> dict:
+        params = {"lote": True}
+        if self.client_cnpj:
+            params["cnpjConsulta"] = self.client_cnpj
+        return params
+
     def _get_with_retry(self, url: str, **kwargs) -> requests.Response:
         """
         GET com retry automático em caso de 429 (Too Many Requests) ou 503
@@ -314,8 +330,11 @@ class NFSeClient:
     # ------------------------------------------------------------------
     def test_connection(self) -> Tuple[bool, str]:
         try:
-            resp = self._get_with_retry(
-                config.DFE_ENDPOINT.format(nsu=0), timeout=config.HTTP_TIMEOUT
+            # Uma tentativa no teste interativo; a sincronização mantém retries.
+            resp = self.session.get(
+                config.DFE_ENDPOINT.format(nsu=0),
+                params=self._dfe_params(),
+                timeout=config.HTTP_TIMEOUT,
             )
             if resp.status_code in (200, 204, 404):
                 return True, "Conectado com sucesso."
@@ -329,6 +348,10 @@ class NFSeClient:
         except requests.exceptions.SSLError as e:
             logger.log_error("Erro de TLS/Certificado na Conexão", e)
             return False, f"Erro de TLS/certificado: {e}"
+        except requests.exceptions.Timeout as e:
+            msg = f"Tempo limite após {config.HTTP_TIMEOUT} segundos ao acessar o ADN. Detalhe: {e}"
+            logger.log_error("Conexão - Tempo Limite", msg)
+            return False, msg
         except requests.exceptions.RequestException as e:
             logger.log_error("Erro de Rede na Conexão", e)
             return False, f"Erro de rede: {e}"
@@ -364,7 +387,9 @@ class NFSeClient:
             first_call = False
 
             resp = self._get_with_retry(
-                config.DFE_ENDPOINT.format(nsu=nsu), timeout=config.HTTP_TIMEOUT
+                config.DFE_ENDPOINT.format(nsu=nsu),
+                params=self._dfe_params(),
+                timeout=config.HTTP_TIMEOUT,
             )
 
             # Grava log da ÚLTIMA resposta bruta recebida da API (útil para ver

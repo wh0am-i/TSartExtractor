@@ -161,7 +161,6 @@ class CertificateMixin:
                     store_location=store_location,
                     store_name=store_name,
                     client_cnpj=cert_cnpj,
-                    auto_extract_pfx_cnpj=is_store_cert,
                 )
                 ok, msg = client.test_connection()
                 if not ok:

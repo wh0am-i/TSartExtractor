@@ -193,7 +193,6 @@ $items = foreach ($spec in $specs) {
         store_name = item.get("StoreName") or "My"
         has_private_key = bool(item.get("HasPrivateKey"))
         is_expired = bool(item.get("IsExpired"))
-        cnpj = extract_cnpj_from_text(subject) or extract_cnpj_from_text(friendly)
 
         # Extrai CN do campo Subject
         cn = ""
@@ -202,6 +201,9 @@ $items = foreach ($spec in $specs) {
             if part.upper().startswith("CN="):
                 cn = part[3:].strip()
                 break
+
+        # O restante do Subject pode conter o CNPJ da certificadora.
+        cnpj = extract_cnpj_from_text(cn)
 
         label = friendly or cn or thumbprint[:16]
 
