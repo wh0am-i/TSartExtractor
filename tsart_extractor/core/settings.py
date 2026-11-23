@@ -15,12 +15,14 @@ real da API na sua conta, veja o bloco "AJUSTAR AQUI" em api_client.py.
 """
 
 import os
+import sys
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = PACKAGE_DIR.parent
 ASSETS_DIR = PROJECT_DIR / "assets" / "images"
-VAR_DIR = PROJECT_DIR / "var"
+APP_DIR = Path.home() / ".nfse_downloader"
+VAR_DIR = (APP_DIR if getattr(sys, "frozen", False) else PROJECT_DIR) / "var"
 DEBUG_DIR = VAR_DIR / "debug"
 LOG_DIR = VAR_DIR / "logs"
 LOGO_PATH = ASSETS_DIR / "logo.png"
@@ -47,7 +49,6 @@ EVENTOS_ENDPOINT = ADN_BASE_URL + "/contribuintes/NFSe/{chave}/Eventos"
 # --------------------------------------------------------------------------
 # Diretórios locais
 # --------------------------------------------------------------------------
-APP_DIR = Path.home() / ".nfse_downloader"
 DB_PATH = APP_DIR / "notas.db"
 XML_DIR = APP_DIR / "xml"
 PDF_DIR = APP_DIR / "pdf"

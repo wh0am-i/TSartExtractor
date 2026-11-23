@@ -122,6 +122,26 @@ def _find_prestador_e_tomador(root: ET.Element):
     return emit_el, prest_el, toma_el
 
 
+def identificar_nfse(xml_bytes: bytes) -> tuple[str, str]:
+    """Lê o número da NFS-e e o nome do emitente para identificar o arquivo."""
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return "", ""
+
+    info = next(iter(_find_all_by_localname(root, "infnfse")), root)
+    numero = next(
+        ((el.text or "").strip() for el in info if _local(el.tag) == "nnfse"), ""
+    )
+    emit, prest, _ = _find_prestador_e_tomador(info)
+    for pessoa in (emit, prest):
+        if pessoa is not None:
+            nome = _first_text(pessoa, ["xnome", "nomerazao", "razaosocial"])
+            if nome:
+                return numero, nome
+    return numero, ""
+
+
 def parse_nfse_xml(xml_bytes: bytes) -> Optional[dict]:
     """
     Extrai os campos que aparecem no relatório consolidado a partir do XML

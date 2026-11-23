@@ -8,6 +8,7 @@ from tkinter import messagebox
 from tsart_extractor.core import app_logging as logger
 from tsart_extractor.core import settings as config
 from tsart_extractor.persistence import repository as storage
+from tsart_extractor.services.arquivos_nfse import guardar_xml, obter_xml
 from tsart_extractor.services.nfse_api import NFSeAPIError, parse_evento_cancelamento, parse_nfse_xml
 
 
@@ -182,11 +183,9 @@ class SynchronizationMixin:
                                 data_emissao=info["data_emissao"],
                                 situacao="Emitida",
                                 valor_liquido=info["valor_liquido"],
+                                xml_local_path=str(guardar_xml(info["chave"], xml_bytes)),
                             )
                             storage.upsert_nota(nota)
-                            xml_path = config.XML_DIR / f"{info['chave']}.xml"
-                            xml_path.write_bytes(xml_bytes)
-                            storage.set_paths(info["chave"], xml_path=str(xml_path))
                             if incluida:
                                 total_notas += 1
                                 data_em = storage.normalize_date_to_iso(info.get("data_emissao") or "")
@@ -268,10 +267,7 @@ class SynchronizationMixin:
                     self.gui_queue.put(("sync_arquivos_fim", ok, falhas, True))
                     return
                 try:
-                    xml_path = config.XML_DIR / f"{nota.chave}.xml"
-                    if not xml_path.exists():
-                        xml_bytes = client.get_xml(nota.chave)
-                        xml_path.write_bytes(xml_bytes)
+                    xml_path = obter_xml(nota.chave, nota.xml_local_path, client)
                     storage.set_paths(nota.chave, xml_path=str(xml_path))
                     ok += 1
                 except Exception as e:

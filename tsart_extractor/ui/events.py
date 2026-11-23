@@ -193,7 +193,7 @@ class EventMixin:
                     )
 
                 elif kind == "zip_fim":
-                    _, tipo, ok, falhas, caminho, erro, cancelado = item
+                    _, tipo, ok, falhas, caminho, erro, cancelado, aviso_logo = item
                     self._close_progress_dialog()
                     rotulo = "XML" if tipo == "xml" else "PDF"
                     btn = self.baixar_lote_btn_xml if tipo == "xml" else self.baixar_lote_btn_pdf
@@ -202,15 +202,21 @@ class EventMixin:
                         self.status_bar.config(text=f"Exportação de {rotulo} cancelada.")
                     elif erro:
                         self.status_bar.config(text=f"Erro ao gerar ZIP {rotulo}.")
+                        mensagem = f"Erro ao gerar arquivo ZIP ({rotulo}):\n{erro}"
+                        if aviso_logo:
+                            mensagem += f"\n\n{aviso_logo}"
                         messagebox.showerror(
-                            "Baixar lote", f"Erro ao gerar arquivo ZIP ({rotulo}):\n{erro}")
+                            "Baixar lote", mensagem)
                     else:
                         self.status_bar.config(text=f"ZIP {rotulo} gerado com {ok} nota(s).")
-                        messagebox.showinfo(
-                            "Lote gerado",
+                        mostrar = messagebox.showwarning if aviso_logo else messagebox.showinfo
+                        titulo = "Lote gerado sem logo" if aviso_logo else "Lote gerado"
+                        mostrar(
+                            titulo,
                             f"Arquivo ZIP ({rotulo}) criado com sucesso em:\n{caminho}\n\n"
                             f"{ok} nota(s) incluída(s)"
                             + (f", {falhas} sem arquivo {rotulo} local (ignorada(s))." if falhas else ".")
+                            + (f"\n\n{aviso_logo}" if aviso_logo else "")
                         )
 
                 # ── Exportar tudo (XML + PDF + relatório) ───────────────
@@ -219,7 +225,7 @@ class EventMixin:
                     self._update_progress_dialog(i, total_export, detalhe)
 
                 elif kind == "export_all_fim":
-                    _, resultados, caminhos, erro_relatorio, cancelado = item
+                    _, resultados, caminhos, erro_relatorio, cancelado, aviso_logo = item
                     self._close_progress_dialog()
                     estado_lote = "normal" if self.sincronizado and self.notas_atuais else "disabled"
                     self.baixar_lote_btn_xml.config(state=estado_lote)
@@ -241,11 +247,11 @@ class EventMixin:
                         partes_erro.append(f"Relatório: {erro_relatorio}")
 
                     if partes_erro:
+                        mensagem = "Alguns arquivos não puderam ser gerados:\n\n" + "\n".join(partes_erro)
+                        if aviso_logo:
+                            mensagem += f"\n\n{aviso_logo}"
                         self.status_bar.config(text="Exportação completa finalizada com erro(s).")
-                        messagebox.showerror(
-                            "Exportar tudo",
-                            "Alguns arquivos não puderam ser gerados:\n\n" + "\n".join(partes_erro),
-                        )
+                        messagebox.showerror("Exportar tudo", mensagem)
                     else:
                         xml_ok, xml_falhas, _ = resultados.get("xml", (0, 0, None))
                         pdf_ok, pdf_falhas, _ = resultados.get("pdf", (0, 0, None))
@@ -257,13 +263,16 @@ class EventMixin:
                             falhas_msg = (
                                 f"\n\nFalhas ignoradas: {xml_falhas} XML(s), {pdf_falhas} PDF(s)."
                             )
-                        messagebox.showinfo(
-                            "Exportação completa",
+                        mostrar = messagebox.showwarning if aviso_logo else messagebox.showinfo
+                        titulo = "Exportação completa com PDFs sem logo" if aviso_logo else "Exportação completa"
+                        aviso_msg = f"\n\n{aviso_logo}" if aviso_logo else ""
+                        mostrar(
+                            titulo,
                             "Arquivos criados com sucesso em:\n"
                             f"{caminhos['xml']}\n"
                             f"{caminhos['pdf']}\n"
                             f"{caminhos['relatorio']}"
-                            f"{falhas_msg}",
+                            f"{falhas_msg}{aviso_msg}",
                         )
 
         except queue.Empty:

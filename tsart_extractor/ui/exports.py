@@ -7,6 +7,8 @@ from tkinter import filedialog, messagebox
 from tsart_extractor.core import app_logging as logger
 from tsart_extractor.core import settings as config
 from tsart_extractor.persistence import repository as storage
+from tsart_extractor.services.arquivos_nfse import obter_xml
+from tsart_extractor.services.cabecalho_pdf import CabecalhoPDF
 from tsart_extractor.services.danfse import gerar_danfse
 from tsart_extractor.services.reporting import gerar_relatorio
 
@@ -39,6 +41,7 @@ class ExportMixin:
         notas_snapshot = list(self.notas_atuais)
         total = len(notas_snapshot)
         client = self.client
+        preferencias = self.cabecalho_pdf
 
         btn.config(state="disabled")
         self._export_cancelar = threading.Event()
@@ -52,6 +55,8 @@ class ExportMixin:
         )
 
         def worker():
+            cabecalho, aviso_logo = preferencias.preparar() if tipo == "pdf" else (CabecalhoPDF(), "")
+
             def progresso(i, ok, falhas):
                 self.gui_queue.put(("zip_progresso", tipo, i, total, ok, falhas))
 
@@ -62,8 +67,9 @@ class ExportMixin:
                 client=client,
                 cancel_event=self._export_cancelar,
                 progresso=progresso,
+                cabecalho=cabecalho,
             )
-            self.gui_queue.put(("zip_fim", tipo, ok, falhas, caminho, erro, cancelado))
+            self.gui_queue.put(("zip_fim", tipo, ok, falhas, caminho, erro, cancelado, aviso_logo))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -116,6 +122,7 @@ class ExportMixin:
         total_notas = len(notas_snapshot)
         total_passos = max(total_notas * 2 + 1, 1)
         client = self.client
+        preferencias = self.cabecalho_pdf
         empresa_nome = self.empresa_var.get().strip() or "(empresa não informada)"
         empresa_cnpj = self.cnpj_var.get().strip() or "(cnpj não informado)"
         tipo_notas = self.tipo_notas_var.get()
@@ -163,7 +170,7 @@ class ExportMixin:
             )
             resultados["xml"] = (ok, falhas, erro)
             if cancelado:
-                self.gui_queue.put(("export_all_fim", resultados, caminhos, None, True))
+                self.gui_queue.put(("export_all_fim", resultados, caminhos, None, True, ""))
                 return
 
             def progresso_pdf(i, ok, falhas):
@@ -175,6 +182,7 @@ class ExportMixin:
                     f"Preparando PDF: {i}/{total_notas}  •  falhas: {falhas}",
                 ))
 
+            cabecalho, aviso_logo = preferencias.preparar()
             ok, falhas, erro, cancelado = self._gerar_zip_lote(
                 tipo="pdf",
                 destino=caminhos["pdf"],
@@ -182,14 +190,15 @@ class ExportMixin:
                 client=client,
                 cancel_event=self._export_cancelar,
                 progresso=progresso_pdf,
+                cabecalho=cabecalho,
             )
             resultados["pdf"] = (ok, falhas, erro)
             if cancelado:
-                self.gui_queue.put(("export_all_fim", resultados, caminhos, None, True))
+                self.gui_queue.put(("export_all_fim", resultados, caminhos, None, True, ""))
                 return
 
             if self._export_cancelar and self._export_cancelar.is_set():
-                self.gui_queue.put(("export_all_fim", resultados, caminhos, None, True))
+                self.gui_queue.put(("export_all_fim", resultados, caminhos, None, True, ""))
                 return
 
             erro_relatorio = None
@@ -212,7 +221,7 @@ class ExportMixin:
             except Exception as e:
                 erro_relatorio = str(e)
                 logger.log_error("Exportar tudo (relatório)", e)
-            self.gui_queue.put(("export_all_fim", resultados, caminhos, erro_relatorio, False))
+            self.gui_queue.put(("export_all_fim", resultados, caminhos, erro_relatorio, False, aviso_logo))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -269,6 +278,7 @@ class ExportMixin:
         client,
         cancel_event,
         progresso,
+        cabecalho: CabecalhoPDF = CabecalhoPDF(),
     ):
         assert tipo in ("xml", "pdf")
         rotulo = "XML" if tipo == "xml" else "PDF"
@@ -277,14 +287,20 @@ class ExportMixin:
         temporario = destino.with_suffix(destino.suffix + ".part")
         try:
             with zipfile.ZipFile(temporario, "w", zipfile.ZIP_DEFLATED) as zf:
-                total = len(notas_snapshot)
+                nomes_usados = set()
                 for i, nota in enumerate(notas_snapshot, start=1):
                     if cancel_event and cancel_event.is_set():
                         cancelado = True
                         break
                     try:
-                        path = self._preparar_arquivo_lote(tipo, nota, client)
-                        zf.write(path, arcname=f"{nota.chave}.{tipo}")
+                        path = self._preparar_arquivo_lote(tipo, nota, client, cabecalho)
+                        nome = path.name
+                        sufixo = 2
+                        while nome.casefold() in nomes_usados:
+                            nome = f"{path.stem} ({sufixo}){path.suffix}"
+                            sufixo += 1
+                        zf.write(path, arcname=nome)
+                        nomes_usados.add(nome.casefold())
                         ok += 1
                     except Exception as e:
                         logger.log_error(f"Compactar nota {nota.chave} ({tipo})", e)
@@ -302,28 +318,19 @@ class ExportMixin:
             logger.log_error(f"Baixar lote {rotulo} (ZIP)", e)
             return ok, falhas, str(e), False
 
-    def _preparar_arquivo_lote(self, tipo: str, nota, client) -> Path:
+    def _preparar_arquivo_lote(self, tipo: str, nota, client, cabecalho: CabecalhoPDF) -> Path:
+        xml_path = obter_xml(nota.chave, nota.xml_local_path, client)
+        storage.set_paths(nota.chave, xml_path=str(xml_path))
         if tipo == "xml":
-            path = Path(nota.xml_local_path) if nota.xml_local_path else config.XML_DIR / f"{nota.chave}.xml"
-            if not path.exists():
-                if not client:
-                    raise RuntimeError("XML não disponível localmente")
-                path.write_bytes(client.get_xml(nota.chave))
-            storage.set_paths(nota.chave, xml_path=str(path))
-            return path
+            return xml_path
 
         # Sempre gera o DANFSe do zero a partir do XML atual, evitando usar
         # PDF antigo que possa ter sido criado por uma exportação anterior.
-        path = config.PDF_DIR / f"{nota.chave}.pdf"
-        xml_path = Path(nota.xml_local_path) if nota.xml_local_path else config.XML_DIR / f"{nota.chave}.xml"
-        if not xml_path.exists():
-            if not client:
-                raise RuntimeError("XML necessário para gerar o PDF não está disponível")
-            xml_path.write_bytes(client.get_xml(nota.chave))
-            storage.set_paths(nota.chave, xml_path=str(xml_path))
+        path = config.PDF_DIR / nota.chave / xml_path.with_suffix(".pdf").name
         gerar_danfse(
             xml_path, path,
             cancelada=(nota.situacao == "Cancelada"),
+            cabecalho=cabecalho,
         )
         storage.set_paths(nota.chave, pdf_path=str(path))
         return path

@@ -6,8 +6,10 @@ from tkinter import Label, Tk
 from tkinter import ttk
 
 from tsart_extractor.persistence import repository as storage
+from tsart_extractor.services.cabecalho_pdf import carregar_cabecalho
 from tsart_extractor.services.certificates import CertEntry
 from tsart_extractor.services.nfse_api import NFSeClient
+from tsart_extractor.ui.cabecalho_pdf import CabecalhoPDFMixin
 from tsart_extractor.ui.certificates import CertificateMixin
 from tsart_extractor.ui.events import EventMixin
 from tsart_extractor.ui.exports import ExportMixin
@@ -22,6 +24,7 @@ class App(
     WindowingMixin,
     ProgressDialogMixin,
     LayoutMixin,
+    CabecalhoPDFMixin,
     CertificateMixin,
     SynchronizationMixin,
     NotesMixin,
@@ -53,6 +56,7 @@ class App(
         self.client: NFSeClient | None = None
         self.gui_queue: queue.Queue = queue.Queue()
         self.notas_atuais = []
+        self.cabecalho_pdf = carregar_cabecalho()
         self._cert_entries: list[CertEntry] = []
 
         self._busca_cancelar: threading.Event | None = None

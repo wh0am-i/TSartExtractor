@@ -1,4 +1,5 @@
 requests>=2.31
 requests-pkcs12>=1.25
 reportlab>=4.0
+Pillow
 cryptography

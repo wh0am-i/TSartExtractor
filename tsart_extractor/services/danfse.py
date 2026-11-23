@@ -33,6 +33,7 @@ _bloco_*), sem precisar reescrever a geração do PDF inteira.
 """
 
 from html import escape
+from io import BytesIO
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -45,8 +46,10 @@ from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate,
-    Paragraph, Spacer, Table, TableStyle,
+    Image, KeepInFrame, Paragraph, Spacer, Table, TableStyle,
 )
+
+from tsart_extractor.services.cabecalho_pdf import CabecalhoPDF
 
 
 GREEN = colors.HexColor("#315C4C")
@@ -237,6 +240,8 @@ def gerar_danfse(
     output_path: Path,
     cancelada: bool = False,
     substituida: bool = False,
+    *,
+    cabecalho: CabecalhoPDF = CabecalhoPDF(),
 ) -> Path:
     """
     Gera o DANFSe em PDF a partir do XML autorizado da NFS-e, seguindo o
@@ -333,8 +338,21 @@ def gerar_danfse(
         colWidths=[5.0 * cm],
     )
 
+    header_left = []
+    largura_marca = 3.2 * cm - 12
+    if cabecalho.logo_png:
+        altura_logo = (1.1 if cabecalho.texto else 1.65) * cm
+        logo = Image(BytesIO(cabecalho.logo_png), width=largura_marca, height=altura_logo, kind="proportional")
+        logo.hAlign = "CENTER"
+        header_left.append(logo)
+    if cabecalho.texto:
+        if header_left:
+            header_left.append(Spacer(1, 2))
+        header_left.append(p(cabecalho.texto, title_style))
+
     header = Table(
-        [["TSartExtractor", header_center, header_right, _qr(chave)]],
+        [[KeepInFrame(largura_marca, 2.0 * cm - 6, header_left),
+          header_center, header_right, _qr(chave)]],
         colWidths=[3.2 * cm, 8.2 * cm, 5.0 * cm, 2.5 * cm],
         rowHeights=[2.0 * cm],
     )
@@ -342,8 +360,6 @@ def gerar_danfse(
         ("BOX", (0, 0), (-1, -1), 0.7, GREEN), ("LINEBEFORE", (1, 0), (1, -1), 0.4, BORDER),
         ("LINEBEFORE", (2, 0), (2, -1), 0.4, BORDER), ("LINEBEFORE", (3, 0), (3, -1), 0.4, BORDER),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (0, 0), "CENTER"),
-        ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"), ("FONTSIZE", (0, 0), (0, 0), 8),
-        ("TEXTCOLOR", (0, 0), (0, 0), GREEN),
     ]))
     story.append(header)
     story.append(Paragraph(

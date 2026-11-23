@@ -216,6 +216,10 @@ class LayoutMixin:
             style="Secondary.TButton",
         )
         self.exportar_tudo.pack(side=LEFT, padx=6)
+        ttk.Button(
+            actions, text="Cabeçalho do PDF…", command=self._editar_cabecalho_pdf,
+            style="Quiet.TButton",
+        ).pack(side=LEFT)
         self.status_bar = ttk.Label(
             self.root, text="Selecione um certificado para começar.",
             style="Status.TLabel", anchor=W, padding=(20, 9),
